@@ -1,10 +1,16 @@
 # Laravel Json Exception Handler
 
-[![StyleCI](https://styleci.io/repos/101529653/shield)](https://styleci.io/repos/101529653)
-[![Scrutinizer Code Quality](https://scrutinizer-ci.com/g/sfelix-martins/json-exception-handler/badges/quality-score.png?b=master)](https://scrutinizer-ci.com/g/sfelix-martins/json-exception-handler/?branch=master)
+[![StyleCI](https://styleci.io/repos/101529653/shield?style=plastic&branch=2.0)](https://styleci.io/repos/101529653?style=plastic&branch=2.0)
+[![Scrutinizer Code Quality](https://scrutinizer-ci.com/g/sfelix-martins/json-exception-handler/badges/quality-score.png?b=2.0)](https://scrutinizer-ci.com/g/sfelix-martins/json-exception-handler/?branch=2.0)
+[![Build Status](https://travis-ci.org/sfelix-martins/json-exception-handler.svg?branch=2.0)](https://travis-ci.org/sfelix-martins/json-exception-handler)
 
 Adds methods to your `App\Exceptions\Handler` to treat json responses.
 It is most useful if you are building APIs!
+
+## Requirements
+
+* Laravel Framework >= 5.4
+* php >= 7.0
 
 ## JsonAPI
 
@@ -16,17 +22,17 @@ Default error response:
 
 ```json
 {
-    "errors": [
-        {
-            "status": 404,
-            "code": 15,
-            "source": {
-                "pointer": ""
-            },
-            "title": "Route not found.",
-            "detail": "NotFoundHttpException line 179 in RouteCollection.php"
-        }
-    ]
+  "errors": [
+    {
+      "status": "404",
+      "code": "13",
+      "title": "model_not_found_exception",
+      "detail": "User not found",
+      "source": {
+        "pointer": "data/id"
+      }
+    }
+  ]
 }
 ```
 
@@ -34,35 +40,26 @@ To `Illuminate\Validation\ValidationException`:
 
 ```json
 {
-    "errors": [
-        {
-            "status": 422,
-            "code": 1411,
-            "source": {
-                "parameter": "name"
-            },
-            "title": "Required validation failed on field name",
-            "detail": "The name field is required."
-        },
-        {
-            "status": 422,
-            "code": 1433,
-            "source": {
-                "parameter": "password"
-            },
-            "title": "Min validation failed on field password",
-            "detail": "The password must be at least 6 characters."
-        },
-        {
-            "status": 422,
-            "code": 1432,
-            "source": {
-                "parameter": "password"
-            },
-            "title": "Confirmed validation failed on field password",
-            "detail": "The password confirmation does not match."
-        }
-    ]
+  "errors": [
+    {
+      "status": "422",
+      "code": "1411",
+      "title": "Required validation failed on field name",
+      "detail": "The name field is required.",
+      "source": {
+        "pointer": "name"
+      }
+    },
+    {
+      "status": "422",
+      "code": "1421",
+      "title": "Email validation failed on field email",
+      "detail": "The email must be a valid email address.",
+      "source": {
+        "pointer": "email"
+      }
+    }
+  ]
 }
 ```
 
@@ -76,8 +73,6 @@ To `Illuminate\Validation\ValidationException`:
 - `League\OAuth2\Server\Exception\OAuthServerException`
 - `Symfony\Component\HttpKernel\Exception\NotFoundHttpException`
 - `Symfony\Component\HttpKernel\Exception\BadRequestHttpException`
-- `GuzzleHttp\Exception\ClientException`
-- `Cielo\API30\Ecommerce\Request\CieloRequestException`
 
 ## Installing and configuring
 
@@ -92,7 +87,7 @@ If you are not using **Laravel 5.5** version add the `JsonHandlerServiceProvider
 ```php
     'providers' => [
         ...
-        SMartins\JsonHandler\JsonHandlerServiceProvider::class,
+        SMartins\Exceptions\JsonHandlerServiceProvider::class,
     ],
 ```
 
@@ -125,13 +120,13 @@ passing the `$exception` if `$request` expects a json response on `render()`meth
 
 ```php
 
-use SMartins\JsonHandler\JsonHandler;
+use SMartins\Exceptions\JsonHandler;
 
 class Handler extends ExceptionHandler
 {
     use JsonHandler;
 
-    ...
+    // ...
 
     public function render($request, Exception $exception)
     {   
@@ -142,21 +137,20 @@ class Handler extends ExceptionHandler
         return parent::render($request, $exception);
     }
     
-    ...
+    // ...
 ```
 
 ### Use sample
 
 ```php
-
 class UserController extends Controller
 {
-    ...
+    // ...
 
     public function store(Request $request)
     {
         // Validation
-        $request->validate($this->rules); // on Laravel 5.5
+        $request->validate($this->rules);
 
         // or
         $this->validate($request, $this->rules);
@@ -184,6 +178,119 @@ class UserController extends Controller
         // Generate an AuthorizationException if fail
         $this->authorize('users.view', $user->id);
     }
+
+```
+
+## Extending
+
+You can too create your own handler to any Exception. E.g.:
+
+- Create a Handler class that extends of `AbstractHandler`:
+
+```php
+namespace App\Exceptions;
+
+use GuzzleHttp\Exception\ClientException;
+use SMartins\Exceptions\Handlers\AbstractHandler;
+
+class GuzzleClientHandler extends AbstractHandler
+{
+    /**
+     * Create instance using the Exception to be handled.
+     *
+     * @param \GuzzleHttp\Exception\ClientException $e
+     */
+    public function __construct(ClientException $e)
+    {
+        parent::__construct($e);
+    }
+}
+```
+
+- You must implements the method `handle()` from `AbstractHandler` class. The method must return an instance of `Error` or `ErrorCollection`:
+
+```php
+namespace App\Exceptions;
+
+use SMartins\Exceptions\JsonAPI\Error;
+use SMartins\Exceptions\JsonAPI\Source;
+use GuzzleHttp\Exception\ClientException;
+use SMartins\Exceptions\Handlers\AbstractHandler;
+
+class GuzzleClientHandler extends AbstractHandler
+{
+    // ...
+
+    public function handle()
+    {
+        return (new Error)->setStatus($this->getStatusCode())
+            ->setCode($this->getCode())
+            ->setSource((new Source())->setPointer($this->getDefaultPointer()))
+            ->setTitle($this->getDefaultTitle())
+            ->setDetail($this->exception->getMessage());
+    }
+
+    public function getCode()
+    {
+        // You can add a new type of code on `config/json-exception-handlers.php`
+        return config('json-exception-handler.codes.client.default');
+    }
+}
+```
+
+```php
+namespace App\Exceptions;
+
+use SMartins\Exceptions\JsonAPI\Error;
+use SMartins\Exceptions\JsonAPI\Source;
+use SMartins\Exceptions\JsonAPI\ErrorCollection;
+use SMartins\Exceptions\Handlers\AbstractHandler;
+
+class MyCustomizedHandler extends AbstractHandler
+{
+    public function __construct(MyCustomizedException $e)
+    {
+        parent::__construct($e);
+    }
+
+    public function handle()
+    {
+        $errors = (new ErrorCollection)->setStatusCode(400);
+
+        $exceptions = $this->exception->getExceptions();
+
+        foreach ($exceptions as $exception) {
+            $error = (new Error)->setStatus(422)
+                ->setSource((new Source())->setPointer($this->getDefaultPointer()))
+                ->setTitle($this->getDefaultTitle())
+                ->setDetail($exception->getMessage());
+
+            $errors->push($error);
+        }
+
+        return $errors;
+    }
+}
+```
+
+- Now just registry your customized handler on `App\Exception\Handler` file on attribute `exceptionHandlers`. E.g:
+
+```php
+namespace App\Exceptions;
+
+use Exception;
+use GuzzleHttp\Exception\ClientException;
+use Illuminate\Foundation\Exceptions\Handler as ExceptionHandler;
+use SMartins\Exceptions\JsonHandler;
+
+class Handler extends ExceptionHandler
+{
+    use JsonHandler;
+
+    protected $exceptionHandlers = [
+        // Set on key the exception and on value the handler.
+        ClientException::class => GuzzleClientHandler::class,
+    ];
 
 ```
 
